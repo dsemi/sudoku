@@ -36,31 +36,35 @@ impl<const SIZE: usize> Grid<SIZE> {
             .iter()
             .flat_map(|row| row.iter().map(|v| if show_opts { v.card() } else { 1 }))
             .max()
-            .unwrap() as usize
-            + 1;
+            .unwrap() as usize;
         // isqrt is in nightly.
         let box_size = (SIZE as f64).sqrt() as usize;
         // False positive for non-Copy types.
         // https://github.com/rust-lang/rust-clippy/issues/11958
         #[allow(clippy::useless_vec)]
-        let line =
-            vec![vec!['-'; width * box_size].into_iter().collect::<String>(); SIZE / box_size]
-                .join("+");
+        let line = vec![
+            vec!['-'; width * box_size + 4]
+                .into_iter()
+                .collect::<String>();
+            SIZE / box_size
+        ]
+        .join("+");
         for r in 1..=SIZE {
+            write!(f, " ")?;
             for c in 1..=SIZE {
                 if self[(r, c)].card() == 1 {
-                    write!(f, "{:^width$}", self[(r, c)].val())?;
+                    write!(f, "{:^width$} ", self[(r, c)].val())?;
                 } else if show_opts {
                     let v: String = self[(r, c)]
                         .vals()
                         .map(|d| char::from_digit(d, 10).unwrap())
                         .collect();
-                    write!(f, "{:^width$}", v)?;
+                    write!(f, "{:^width$} ", v)?;
                 } else {
-                    write!(f, "{:^width$}", '.')?;
+                    write!(f, "{:^width$} ", '.')?;
                 }
                 if c != SIZE && c % box_size == 0 {
-                    write!(f, "|")?;
+                    write!(f, "| ")?;
                 }
             }
             writeln!(f)?;
