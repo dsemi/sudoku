@@ -1,17 +1,15 @@
 use ahash::{AHashMap, AHashSet};
-use once_cell::sync::Lazy;
 use std::cmp::{max, min};
+use std::sync::LazyLock;
 use std::time::Instant;
 
 mod set;
 use set::Set;
 
 mod grid;
-use grid::Grid;
+use grid::{Grid, C};
 
-type Idx = (usize, usize);
-
-static PARTITIONS: Lazy<AHashMap<(u32, usize), Vec<Set>>> = Lazy::new(|| {
+static PARTITIONS: LazyLock<AHashMap<(u32, usize), Vec<Set>>> = LazyLock::new(|| {
     let mut partitions = AHashMap::new();
     for size in 1..=9 {
         let mut buf = vec![0; size + 1];
@@ -40,35 +38,35 @@ static PARTITIONS: Lazy<AHashMap<(u32, usize), Vec<Set>>> = Lazy::new(|| {
 // Maybe undo this and inline back into peers
 struct Unit {
     required_vals: Set,
-    locations: Vec<Idx>,
+    locations: Vec<C>,
 }
 
 struct Cage {
     size: usize,
     sum: u32,
-    locations: Vec<Idx>,
+    locations: Vec<C>,
 }
 
 #[derive(Default)]
 struct Rules<const SIZE: usize> {
-    squares: Vec<Idx>,
+    squares: Vec<C>,
     // Can probably speed up all of the lookups by having a grid of the same size as the sudoku board, holding the values of the maps.
 
     // Map from each square to all of the units that contain it.
     // A unit must contain all values exactly once.
-    units: AHashMap<Idx, Vec<Unit>>,
+    units: AHashMap<C, Vec<Unit>>,
     // Map from each square to all of its peers.
     // A peer of a square must have a distinct value from that square.
-    peers: AHashMap<Idx, AHashSet<Idx>>,
+    peers: AHashMap<C, AHashSet<C>>,
     // All digits in a cage must be unique (handled by adding to peers).
     // Additionally, if the cage has a sum, the sum of the digits in the cage must match.
-    cages: AHashMap<Idx, Cage>,
+    cages: AHashMap<C, Cage>,
     // Any restriction around non-consecutive digits.
-    non_consec: AHashMap<Idx, AHashSet<Idx>>,
+    non_consec: AHashMap<C, AHashSet<C>>,
 }
 
 impl<const SIZE: usize> Rules<SIZE> {
-    fn add_cage(&mut self, locations: &[Idx]) {
+    fn add_cage(&mut self, locations: &[C]) {
         for &i in locations {
             for &j in locations {
                 if i != j {
@@ -79,7 +77,7 @@ impl<const SIZE: usize> Rules<SIZE> {
         }
     }
 
-    fn add_cage_with_sum(&mut self, sum: u32, locations: &[Idx]) {
+    fn add_cage_with_sum(&mut self, sum: u32, locations: &[C]) {
         self.add_cage(locations);
         // Maybe switch to reference.
         for &i in locations {
@@ -126,11 +124,11 @@ impl<const SIZE: usize> Rules<SIZE> {
         Some(grid)
     }
 
-    fn assign(&self, grid: &mut Grid<SIZE>, i: Idx, d: u32) -> bool {
+    fn assign(&self, grid: &mut Grid<SIZE>, i: C, d: u32) -> bool {
         grid[i].remove(d).vals().all(|d| self.eliminate(grid, i, d))
     }
 
-    fn eliminate(&self, grid: &mut Grid<SIZE>, i: Idx, d: u32) -> bool {
+    fn eliminate(&self, grid: &mut Grid<SIZE>, i: C, d: u32) -> bool {
         if !grid[i].has(d) {
             return true;
         }
@@ -258,7 +256,7 @@ fn parse_grid_no_rules<const SIZE: usize>(input: &str) -> Grid<SIZE> {
     for (i, v) in chars.into_iter().enumerate() {
         let (r, c) = (i / SIZE, i % SIZE);
         if let Some(d) = v.to_digit(10).filter(|&d| d > 0) {
-            grid[(r + 1, c + 1)] = Set::default().insert(d);
+            grid[C(r + 1, c + 1)] = Set::default().insert(d);
         }
     }
     grid
@@ -271,21 +269,21 @@ fn normal() -> Rules<NORMAL_SIZE> {
     // isqrt is in nightly.
     let box_size = (NORMAL_SIZE as f64).sqrt() as usize;
     rules.squares = (1..=NORMAL_SIZE)
-        .flat_map(|r| (1..=NORMAL_SIZE).map(move |c| (r, c)))
+        .flat_map(|r| (1..=NORMAL_SIZE).map(move |c| C(r, c)))
         .collect();
-    let mut all_units: Vec<Vec<Idx>> = Vec::new();
+    let mut all_units: Vec<Vec<C>> = Vec::new();
     for r in 1..=NORMAL_SIZE {
-        all_units.push((1..=NORMAL_SIZE).map(|c| (r, c)).collect());
+        all_units.push((1..=NORMAL_SIZE).map(|c| C(r, c)).collect());
     }
     for c in 1..=NORMAL_SIZE {
-        all_units.push((1..=NORMAL_SIZE).map(|r| (r, c)).collect());
+        all_units.push((1..=NORMAL_SIZE).map(|r| C(r, c)).collect());
     }
     for r in (1..=NORMAL_SIZE).step_by(box_size) {
         for c in (1..=NORMAL_SIZE).step_by(box_size) {
             let mut bx = Vec::with_capacity(NORMAL_SIZE);
             for dr in 0..box_size {
                 for dc in 0..box_size {
-                    bx.push((r + dr, c + dc));
+                    bx.push(C(r + dr, c + dc));
                 }
             }
             all_units.push(bx);
@@ -324,51 +322,51 @@ fn normal() -> Rules<NORMAL_SIZE> {
 }
 
 fn unique_knight_moves<const SIZE: usize>(rules: &mut Rules<SIZE>) {
-    for &(r, c) in &rules.squares {
+    for &C(r, c) in &rules.squares {
         let knight_moves = [
-            (r - 2, c - 1),
-            (r - 2, c + 1),
-            (r - 1, c - 2),
-            (r - 1, c + 2),
-            (r + 1, c - 2),
-            (r + 1, c + 2),
-            (r + 2, c - 1),
-            (r + 2, c + 1),
+            C(r - 2, c - 1),
+            C(r - 2, c + 1),
+            C(r - 1, c - 2),
+            C(r - 1, c + 2),
+            C(r + 1, c - 2),
+            C(r + 1, c + 2),
+            C(r + 2, c - 1),
+            C(r + 2, c + 1),
         ];
         for pos in knight_moves {
             if (1..=9).contains(&pos.0) && (1..=9).contains(&pos.1) {
-                rules.peers.entry((r, c)).or_default().insert(pos);
+                rules.peers.entry(C(r, c)).or_default().insert(pos);
             }
         }
     }
 }
 
 fn unique_king_moves<const SIZE: usize>(rules: &mut Rules<SIZE>) {
-    for &(r, c) in &rules.squares {
+    for &C(r, c) in &rules.squares {
         let king_moves = [
-            (r - 1, c - 1),
-            (r - 1, c),
-            (r - 1, c + 1),
-            (r, c - 1),
-            (r, c + 1),
-            (r + 1, c - 1),
-            (r + 1, c),
-            (r + 1, c + 1),
+            C(r - 1, c - 1),
+            C(r - 1, c),
+            C(r - 1, c + 1),
+            C(r, c - 1),
+            C(r, c + 1),
+            C(r + 1, c - 1),
+            C(r + 1, c),
+            C(r + 1, c + 1),
         ];
         for pos in king_moves {
             if (1..=9).contains(&pos.0) && (1..=9).contains(&pos.1) {
-                rules.peers.entry((r, c)).or_default().insert(pos);
+                rules.peers.entry(C(r, c)).or_default().insert(pos);
             }
         }
     }
 }
 
 fn non_consecutive_orthogonal<const SIZE: usize>(rules: &mut Rules<SIZE>) {
-    for &(r, c) in &rules.squares {
-        let ortho = [(r - 1, c), (r + 1, c), (r, c - 1), (r, c + 1)];
+    for &C(r, c) in &rules.squares {
+        let ortho = [C(r - 1, c), C(r + 1, c), C(r, c - 1), C(r, c + 1)];
         for pos in ortho {
             if (1..=9).contains(&pos.0) && (1..=9).contains(&pos.1) {
-                rules.non_consec.entry((r, c)).or_default().insert(pos);
+                rules.non_consec.entry(C(r, c)).or_default().insert(pos);
             }
         }
     }
@@ -398,9 +396,8 @@ fn main() {
         ".....1.2.3...4.5.....6....7..2.....1.8..9..3.4.....8..5....2....9..3.4....67.....",
     ];
     let rules = normal();
-    for j in 0..20 {
-        rules.time_solve(hard20[j]);
-        // println!();
+    for puzz in hard20 {
+        rules.time_solve(puzz);
     }
 }
 
@@ -607,47 +604,47 @@ mod tests {
                    812675934";
         let mut rules = normal();
         // Would be nice to parse these without needing to add manually.
-        rules.add_cage_with_sum(15, &[(1, 1), (1, 2), (2, 1)]);
-        rules.add_cage_with_sum(5, &[(1, 3), (1, 4)]);
-        rules.add_cage_with_sum(27, &[(1, 5), (2, 5), (3, 5), (4, 5), (4, 6)]);
+        rules.add_cage_with_sum(15, &[C(1, 1), C(1, 2), C(2, 1)]);
+        rules.add_cage_with_sum(5, &[C(1, 3), C(1, 4)]);
+        rules.add_cage_with_sum(27, &[C(1, 5), C(2, 5), C(3, 5), C(4, 5), C(4, 6)]);
         rules.add_cage_with_sum(
             45,
             &[
-                (1, 6),
-                (2, 6),
-                (1, 7),
-                (1, 8),
-                (1, 9),
-                (2, 9),
-                (3, 9),
-                (4, 9),
-                (4, 8),
+                C(1, 6),
+                C(2, 6),
+                C(1, 7),
+                C(1, 8),
+                C(1, 9),
+                C(2, 9),
+                C(3, 9),
+                C(4, 9),
+                C(4, 8),
             ],
         );
-        rules.add_cage_with_sum(13, &[(2, 7), (2, 8)]);
-        rules.add_cage_with_sum(13, &[(3, 7), (3, 8)]);
-        rules.add_cage_with_sum(5, &[(3, 1), (4, 1)]);
-        rules.add_cage_with_sum(23, &[(4, 4), (5, 4), (5, 3), (5, 2), (5, 1)]);
-        rules.add_cage_with_sum(23, &[(5, 6), (6, 6), (5, 7), (5, 8), (5, 9)]);
+        rules.add_cage_with_sum(13, &[C(2, 7), C(2, 8)]);
+        rules.add_cage_with_sum(13, &[C(3, 7), C(3, 8)]);
+        rules.add_cage_with_sum(5, &[C(3, 1), C(4, 1)]);
+        rules.add_cage_with_sum(23, &[C(4, 4), C(5, 4), C(5, 3), C(5, 2), C(5, 1)]);
+        rules.add_cage_with_sum(23, &[C(5, 6), C(6, 6), C(5, 7), C(5, 8), C(5, 9)]);
         rules.add_cage_with_sum(
             45,
             &[
-                (6, 1),
-                (6, 2),
-                (7, 1),
-                (8, 1),
-                (9, 1),
-                (9, 2),
-                (9, 3),
-                (9, 4),
-                (8, 4),
+                C(6, 1),
+                C(6, 2),
+                C(7, 1),
+                C(8, 1),
+                C(9, 1),
+                C(9, 2),
+                C(9, 3),
+                C(9, 4),
+                C(8, 4),
             ],
         );
-        rules.add_cage_with_sum(27, &[(6, 4), (6, 5), (7, 5), (8, 5), (9, 5)]);
-        rules.add_cage_with_sum(13, &[(7, 2), (7, 3)]);
-        rules.add_cage_with_sum(13, &[(8, 2), (8, 3)]);
-        rules.add_cage_with_sum(13, &[(7, 7), (8, 7)]);
-        rules.add_cage_with_sum(8, &[(7, 8), (8, 8)]);
+        rules.add_cage_with_sum(27, &[C(6, 4), C(6, 5), C(7, 5), C(8, 5), C(9, 5)]);
+        rules.add_cage_with_sum(13, &[C(7, 2), C(7, 3)]);
+        rules.add_cage_with_sum(13, &[C(8, 2), C(8, 3)]);
+        rules.add_cage_with_sum(13, &[C(7, 7), C(8, 7)]);
+        rules.add_cage_with_sum(8, &[C(7, 8), C(8, 8)]);
         let exp = rules.parse_grid(sol).expect("expected malformed");
         let act = rules.parse_grid(grd).expect("actual malformed");
         let act = rules.search(act).expect("no solution found");
